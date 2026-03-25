@@ -5,7 +5,7 @@ def transform_to_iteration_form(a, b):
 
     for i in range(n):
         if abs(a[i][i]) < 1e-15:
-            raise ValueError("Zero diagonal element")
+            raise ValueError("Нулевой диагональный элемент")
         c[i] = b[i] / a[i][i]
         for j in range(n):
             if i != j:
@@ -24,7 +24,7 @@ def simple_iterations(a, b, eps=1e-8, max_iter=100000):
         x = x_new
         if diff < eps:
             return x, k
-    raise RuntimeError("Simple iterations did not converge")
+    raise RuntimeError("Метод простых итераций не сошелся")
 
 
 def gauss_seidel(a, b, eps=1e-8, max_iter=100000):
@@ -41,7 +41,7 @@ def gauss_seidel(a, b, eps=1e-8, max_iter=100000):
         diff = max(abs(x[i] - x_old[i]) for i in range(n))
         if diff < eps:
             return x, k
-    raise RuntimeError("Gauss-Seidel method did not converge")
+    raise RuntimeError("Метод Гаусса-Зейделя не сошелся")
 
 
 def print_solution(title, x, iterations):

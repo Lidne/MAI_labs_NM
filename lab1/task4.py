@@ -92,15 +92,15 @@ def main():
 
     eigenvalues, eigenvectors, errors = jacobi_rotation_method(a, eps=eps)
 
-    print("Eigenvalues:")
+    print("Собственные значения:")
     for i, val in enumerate(eigenvalues, start=1):
         print(f"lambda{i} = {val:.10f}")
 
-    print("\nEigenvectors (columns):")
+    print("\nСобственные векторы (столбцы):")
     for row in eigenvectors:
         print(" ".join(f"{x: .10f}" for x in row))
 
-    print("\nError vs iterations (off-diagonal Frobenius norm):")
+    print("\nОшибка по итерациям (внедиагональная норма Фробениуса):")
     for i, err in enumerate(errors):
         print(f"iter {i:4d}: {err:.12e}")
 

@@ -127,7 +127,7 @@ def main():
     q, r = qr_decomposition_householder(a)
     eigenvalues, iters = qr_eigenvalues(a, eps=eps)
 
-    print("QR decomposition:")
+    print("QR-разложение:")
     print("Q =")
     for row in q:
         print(" ".join(f"{x: .10f}" for x in row))
@@ -135,10 +135,10 @@ def main():
     for row in r:
         print(" ".join(f"{x: .10f}" for x in row))
 
-    print("\nEigenvalues from QR algorithm:")
+    print("\nСобственные значения по QR-алгоритму:")
     for idx, val in enumerate(eigenvalues, start=1):
-        print(f"lambda{idx} = {val}")
-    print(f"iterations = {iters}")
+        print(f"λ{idx} = {val}")
+    print(f"итерации = {iters}")
 
 
 if __name__ == "__main__":

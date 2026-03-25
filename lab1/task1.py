@@ -10,7 +10,7 @@ def lu_decomposition_with_pivoting(a):
     for k in range(n):
         pivot_row = max(range(k, n), key=lambda i: abs(lu[i][k]))
         if abs(lu[pivot_row][k]) < 1e-15:
-            raise ValueError("Matrix is singular")
+            raise ValueError("Матрица является единственной")
 
         if pivot_row != k:
             lu[k], lu[pivot_row] = lu[pivot_row], lu[k]
@@ -89,9 +89,9 @@ def main():
     det = determinant_from_lu(lu, swap_count)
     inv = inverse_from_lu(lu, p)
 
-    print_vector("Solution of SLAE:", x)
-    print(f"Determinant: {det:.10f}\n")
-    print_matrix("Inverse matrix:", inv)
+    print_vector("Решение СЛАУ:", x)
+    print(f"det: {det:.10f}\n")
+    print_matrix("Обратная:", inv)
 
 
 if __name__ == "__main__":
