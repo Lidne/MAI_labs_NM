@@ -27,7 +27,6 @@ def thomas_algorithm(a, b, c, d):
 
 
 def main():
-    # a - subdiagonal, b - diagonal, c - superdiagonal
     a = [-2.0, 2.0, -8.0, -7.0]
     b = [8.0, 12.0, -9.0, 17.0, 13.0]
     c = [-4.0, -7.0, 1.0, -4.0]
