@@ -5,81 +5,78 @@ def identity(n):
     return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
 
 
-def transpose(m):
-    return [list(row) for row in zip(*m)]
+def transpose(matrix):
+    return [list(row) for row in zip(*matrix)]
 
 
 def matmul(a, b):
+    rows = len(a)
+    cols = len(b[0])
+    inner = len(b)
+    result = [[0.0] * cols for _ in range(rows)]
+    for i in range(rows):
+        for k in range(inner):
+            for j in range(cols):
+                result[i][j] += a[i][k] * b[k][j]
+    return result
+
+
+def jacobi_measure(a):
+    total = 0.0
     n = len(a)
-    p = len(b[0])
-    kdim = len(b)
-    out = [[0.0] * p for _ in range(n)]
-    for i in range(n):
-        for k in range(kdim):
-            aik = a[i][k]
-            for j in range(p):
-                out[i][j] += aik * b[k][j]
-    return out
-
-
-def offdiag_frobenius_norm(a):
-    n = len(a)
-    s = 0.0
-    for i in range(n):
-        for j in range(n):
-            if i != j:
-                s += a[i][j] * a[i][j]
-    return math.sqrt(s)
-
-
-def max_offdiag_index(a):
-    n = len(a)
-    p, q = 0, 1
-    best = abs(a[p][q])
     for i in range(n):
         for j in range(i + 1, n):
-            val = abs(a[i][j])
-            if val > best:
-                best = val
-                p, q = i, j
-    return p, q
+            total += a[i][j] * a[i][j]
+    return math.sqrt(total)
+
+
+def max_off_diagonal_index(a):
+    n = len(a)
+    row, col = 0, 1
+    best = abs(a[0][1])
+    for i in range(n):
+        for j in range(i + 1, n):
+            current = abs(a[i][j])
+            if current > best:
+                best = current
+                row, col = i, j
+    return row, col
 
 
 def jacobi_rotation_method(a, eps=1e-10, max_iter=10000):
     n = len(a)
-    a_curr = [row[:] for row in a]
-    v = identity(n)
-    errors = [offdiag_frobenius_norm(a_curr)]
+    current = [row[:] for row in a]
+    eigenvectors = identity(n)
+    history = [jacobi_measure(current)]
 
-    for it in range(1, max_iter + 1):
-        if errors[-1] < eps:
+    for _ in range(max_iter):
+        if history[-1] <= eps:
             break
 
-        p, q = max_offdiag_index(a_curr)
-        if abs(a_curr[p][q]) < 1e-15:
+        i, j = max_off_diagonal_index(current)
+        if abs(current[i][j]) < 1e-15:
             break
 
-        if abs(a_curr[p][p] - a_curr[q][q]) < 1e-15:
-            phi = math.pi / 4
+        if abs(current[i][i] - current[j][j]) < 1e-15:
+            phi = math.pi / 4.0
         else:
-            phi = 0.5 * math.atan2(2 * a_curr[p][q], a_curr[p][p] - a_curr[q][q])
+            phi = 0.5 * math.atan(2.0 * current[i][j] / (current[i][i] - current[j][j]))
 
         c = math.cos(phi)
         s = math.sin(phi)
 
-        u = identity(n)
-        u[p][p] = c
-        u[q][q] = c
-        u[p][q] = -s
-        u[q][p] = s
+        rotation = identity(n)
+        rotation[i][i] = c
+        rotation[j][j] = c
+        rotation[i][j] = -s
+        rotation[j][i] = s
 
-        ut = transpose(u)
-        a_curr = matmul(matmul(ut, a_curr), u)
-        v = matmul(v, u)
-        errors.append(offdiag_frobenius_norm(a_curr))
+        current = matmul(matmul(transpose(rotation), current), rotation)
+        eigenvectors = matmul(eigenvectors, rotation)
+        history.append(jacobi_measure(current))
 
-    eigenvalues = [a_curr[i][i] for i in range(n)]
-    return eigenvalues, v, errors
+    eigenvalues = [current[i][i] for i in range(n)]
+    return eigenvalues, eigenvectors, history
 
 
 def main():
@@ -90,19 +87,21 @@ def main():
     ]
     eps = 1e-10
 
-    eigenvalues, eigenvectors, errors = jacobi_rotation_method(a, eps=eps)
+    eigenvalues, eigenvectors, history = jacobi_rotation_method(a, eps=eps)
 
     print("Собственные значения:")
-    for i, val in enumerate(eigenvalues, start=1):
-        print(f"lambda{i} = {val:.10f}")
+    for i, value in enumerate(eigenvalues, start=1):
+        print(f"lambda{i} = {value:.10f}")
 
-    print("\nСобственные векторы (столбцы):")
+    print("\nСобственные векторы (столбцы матрицы U):")
     for row in eigenvectors:
-        print(" ".join(f"{x: .10f}" for x in row))
+        print(" ".join(f"{value: .10f}" for value in row))
 
-    print("\nОшибка по итерациям (внедиагональная норма Фробениуса):")
-    for i, err in enumerate(errors):
-        print(f"iter {i:4d}: {err:.12e}")
+    print("\nИстория t(A^(k)) = sqrt(sum(a_lm^2), l < m):")
+    for iteration, value in enumerate(history):
+        print(f"iter {iteration:3d}: {value:.12e}")
+
+    print("\nСтолбцы итоговой матрицы U являются собственными векторами матрицы A.")
 
 
 if __name__ == "__main__":
