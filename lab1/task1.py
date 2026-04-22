@@ -112,6 +112,7 @@ def main():
     b = [29.0, 42.0, 11.0, 75.0]
 
     l, u, order, swap_count = lu_decomposition_with_pivoting(a)
+    print_vector("order: ", order)
     p = permutation_matrix_from_order(order)
     x = solve_with_lu(l, u, order, b)
     det_a = determinant_from_u(u, swap_count)
