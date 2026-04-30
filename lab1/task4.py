@@ -22,6 +22,7 @@ def matmul(a, b):
 
 
 def jacobi_measure(a):
+    """sqrt(sum(a_ij^2, i<j))"""
     total = 0.0
     n = len(a)
     for i in range(n):

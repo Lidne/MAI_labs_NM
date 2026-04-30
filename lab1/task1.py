@@ -77,12 +77,13 @@ def determinant_from_u(u, swap_count):
 
 
 def inverse_from_lu(l, u, order):
+    """Ax^(j)=e_j"""
     n = len(l)
     inverse = [[0.0] * n for _ in range(n)]
     for col in range(n):
-        e = [0.0] * n
+        e = [0.0] * n  # базисный
         e[col] = 1.0
-        column = solve_with_lu(l, u, order, e)
+        column = solve_with_lu(l, u, order, e)  # Ax=e -> LUx=Pe
         for row in range(n):
             inverse[row][col] = column[row]
     return inverse
