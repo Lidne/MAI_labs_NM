@@ -123,7 +123,7 @@ def qr_algorithm(a, eps=1e-10, max_iter=10000):
         if active == 1:
             block_eigenvalues = eigenvalues_from_2x2_block(current, 0)
             if previous_block_eigenvalues is not None and pair_distance(block_eigenvalues, previous_block_eigenvalues) <= eps:
-                eigenvalues[0], eigenvalues[1] = block_eigenvalues
+                eigenvalues[0], eigenvalues[1] = block_eigenvalues # type: ignore
                 return eigenvalues, iterations, current
             previous_block_eigenvalues = block_eigenvalues
 
@@ -131,7 +131,7 @@ def qr_algorithm(a, eps=1e-10, max_iter=10000):
         eigenvalues[0] = current[0][0]
     elif active == 1 and (eigenvalues[0] is None or eigenvalues[1] is None):
         block_eigenvalues = eigenvalues_from_2x2_block(current, 0)
-        eigenvalues[0], eigenvalues[1] = block_eigenvalues
+        eigenvalues[0], eigenvalues[1] = block_eigenvalues # type: ignore
 
     for i in range(n):
         if eigenvalues[i] is None:
