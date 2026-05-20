@@ -4,16 +4,6 @@ ROOT_INTERVAL = (0.74, 0.80)
 GRID_SIZE = 2000
 
 
-def read_eps() -> float:
-    raw = input("Enter precision epsilon (for example 1e-6): ").strip()
-    if not raw:
-        return 1e-6
-    eps = float(raw)
-    if eps <= 0:
-        raise ValueError("Epsilon must be positive.")
-    return eps
-
-
 def f(x: float) -> float:
     return math.sin(x) - 2 * x * x + 0.5
 
@@ -110,13 +100,13 @@ def print_newton_history(title: str, history):
 
 
 def main():
-    eps = read_eps()
+    eps = 1e-6
     left, right = ROOT_INTERVAL
     q, phi_min, phi_max = prepare_iteration_data(left, right)
     x0_iteration = (left + right) / 2
     x0_newton = choose_newton_start(left, right)
 
-    print("\Решаем: sin(x) - 2x^2 + 0.5 = 0")
+    print("Решаем: sin(x) - 2x^2 + 0.5 = 0")
     print(f"Локализация: [{left}, {right}]")
     print(f"Простая итерация: phi([{left}, {right}]) subset [{phi_min:.6f}, {phi_max:.6f}], q = {q:.6f}")
     print(f"Начальная аппроксимация для простой интерации: x0 = {x0_iteration}")
