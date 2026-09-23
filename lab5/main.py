@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -187,6 +188,98 @@ def solve_crank(bc, a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
     return xs, saved
 
 
+SCHEMES = (
+    ("Явная", solve_explicit),
+    ("Неявная", solve_implicit),
+    ("Кранк—Николсон", solve_crank),
+)
+
+
+def _solution_error(solver, a, N, tau, T, bc="2p2"):
+    xs, saved = solver(bc, a, N, tau, T, [T])
+    numerical = saved[T]
+    analytical = np.exp(-a * a * T) * np.sin(xs)
+    return xs, numerical - analytical
+
+
+def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
+    import matplotlib.pyplot as plt
+
+    if output_dir is None:
+        output_dir = Path(__file__).resolve().parent / "plots"
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = []
+
+    # N=20 обеспечивает устойчивость явной схемы для всех выбранных tau.
+    fixed_N = 20
+    tau_values = np.array([0.01, 0.005, 0.0025, 0.00125, 0.000625])
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for label, solver in SCHEMES:
+        errors = []
+        for tau in tau_values:
+            xs, deviation = _solution_error(solver, a, fixed_N, float(tau), T)
+            errors.append(np.max(np.abs(deviation)))
+        ax.loglog(tau_values, errors, "o-", linewidth=1.8, label=label)
+    ax.set_xlabel(r"Шаг по времени $\tau$")
+    ax.set_ylabel(r"$\max_i |u_i-U(x_i, T)|$")
+    ax.set_title(rf"Измельчение по $\tau$: $h=\pi/{fixed_N}$, $T={T}$, ГУ 2-точ. $O(h^2)$")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    path = output_dir / "error_vs_tau.png"
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    paths.append(path)
+
+    # tau=10^-4 сохраняет устойчивость явной схемы вплоть до N=160.
+    fixed_tau = 0.0001
+    n_values = np.array([10, 20, 40, 80, 160])
+    h_values = L / n_values
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for label, solver in SCHEMES:
+        errors = []
+        for N in n_values:
+            xs, deviation = _solution_error(solver, a, int(N), fixed_tau, T)
+            errors.append(np.max(np.abs(deviation)))
+        ax.loglog(h_values, errors, "o-", linewidth=1.8, label=label)
+    ax.set_xlabel(r"Шаг по пространству $h$")
+    ax.set_ylabel(r"$\max_i |u_i-U(x_i, T)|$")
+    ax.set_title(rf"Измельчение по $h$: $\tau={fixed_tau:g}$, $T={T}$, ГУ 2-точ. $O(h^2)$")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    path = output_dir / "error_vs_h.png"
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    paths.append(path)
+
+    deviation_N = 50
+    deviation_tau = 0.001
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for label, solver in SCHEMES:
+        xs, deviation = _solution_error(solver, a, deviation_N, deviation_tau, T)
+        ax.plot(xs, deviation, linewidth=1.8, label=label)
+    ax.axhline(0.0, color="black", linewidth=0.8)
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$u_h(x, T)-U(x, T)$")
+    ax.set_title(
+        rf"Отклонение от аналитического решения: $N={deviation_N}$, "
+        rf"$\tau={deviation_tau:g}$, $T={T}$, ГУ 2-точ. $O(h^2)$"
+    )
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    path = output_dir / "solution_deviation.png"
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    paths.append(path)
+
+    if show:
+        plt.show()
+    else:
+        plt.close("all")
+    return paths
+
+
 def _print_error_row(scheme, bc, xs, saved, t_out, a):
     errors = [max_error(saved[tt], xs, tt, a) for tt in t_out]
     print(f"{scheme:<10}{bc:<6}" + "".join(f"{err:<14.3e}" for err in errors))
@@ -261,6 +354,10 @@ def main():
         _print_grid_row(tau, "explicit", explicit_errors, 10)
         _print_grid_row(tau, "implicit", implicit_errors, 10)
         _print_grid_row(tau, "crank", crank_errors, 10)
+
+    print("\nГрафики (ГУ: двухточечная аппроксимация O(h^2)):")
+    for path in plot_results(a=a, T=0.5):
+        print(path)
 
 
 if __name__ == "__main__":
