@@ -3,206 +3,199 @@ import math
 import numpy as np
 
 L = math.pi
+SCHEMES = ("explicit", "implicit", "crank")
+BOUNDARIES = ("2p1", "3p2", "2p2")
 
 
 def exact(x, t, a):
-    return math.exp(-a * t) * math.sin(x)
+    return math.exp(-a * a * t) * math.sin(x)
 
 
 def g0(t, a):
-    return math.exp(-a * t)
+    return math.exp(-a * a * t)
 
 
 def g1(t, a):
-    return -math.exp(-a * t)
+    return -math.exp(-a * a * t)
 
 
 def max_error(u, xs, t, a):
-    errs = [abs(ui - exact(x, t, a)) for ui, x in zip(u, xs)]
-    return max(errs)
+    return max(abs(float(ui) - exact(float(x), t, a)) for ui, x in zip(u, xs))
 
 
-def solve(scheme, bc, a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
-    """Решить задачу одной из схем.
-
-    scheme: 'explicit' | 'implicit' | 'crank'.
-    bc: '2p1' | '3p2' | '2p2'.
-    Возвращает (xs, {t: u(t)}).
-    """
-    h = L / N
-    M = max(1, int(round(T / tau)))
-    tau = T / M
-    xs = np.array([i * h for i in range(N + 1)], dtype=float)
-    u = np.array([math.sin(x) for x in xs], dtype=float)
-
-    r = a * tau / h**2
-
-    if t_out is None:
-        t_out = [T]
-    targets = sorted(t_out)
-    saved = {}
-    if 0.0 in targets:
-        saved[0.0] = u.copy()
-
-    mat = None
-    if scheme in ("implicit", "crank"):
-        mat = np.zeros((N + 1, N + 1))
-        if scheme == "implicit":
-            for i in range(1, N):
-                mat[i, i - 1] = -r
-                mat[i, i] = 1.0 + 2.0 * r
-                mat[i, i + 1] = -r
-        else:
-            for i in range(1, N):
-                mat[i, i - 1] = -r / 2.0
-                mat[i, i] = 1.0 + r
-                mat[i, i + 1] = -r / 2.0
-        _set_bc_rows(mat, scheme, bc, h, r)
-
-    t = 0.0
-    next_out = [tt for tt in targets if tt > 0.0]
-    for _ in range(M):
-        t_new = t + tau
-        if scheme == "explicit":
-            u = _step_explicit(u, bc, h, r, t, t_new, a)
-        else:
-            u = _step_implicit(u, mat, scheme, bc, h, r, t, t_new, a)
-        t = t_new
-        for tt in list(next_out):
-            if t + 1e-12 >= tt:
-                saved[tt] = u.copy()
-                next_out.remove(tt)
-
-    return xs, saved
+def _sweep(lower, diag, upper, rhs):
+    n = len(diag)
+    A = np.zeros(n)
+    B = np.zeros(n)
+    for j in range(n):
+        denominator = diag[j] + (lower[j] * A[j - 1] if j else 0.0)
+        if abs(denominator) < 1e-14:
+            raise ArithmeticError("Нулевой ведущий элемент при прогонке")
+        A[j] = -upper[j] / denominator if j < n - 1 else 0.0
+        B[j] = (rhs[j] - (lower[j] * B[j - 1] if j else 0.0)) / denominator
+    result = np.empty(n)
+    result[-1] = B[-1]
+    for j in range(n - 2, -1, -1):
+        result[j] = A[j] * result[j + 1] + B[j]
+    return result
 
 
-def _set_bc_rows(mat, scheme, bc, h, r):
-    N = mat.shape[0] - 1
-    if bc == "2p1":
-        # (u1-u0)/h = g0; (uN-u_{N-1})/h = g1
-        mat[0, 0] = -1.0 / h
-        mat[0, 1] = 1.0 / h
-        mat[N, N - 1] = -1.0 / h
-        mat[N, N] = 1.0 / h
-    elif bc == "3p2":
-        # (-3u0+4u1-u2)/(2h) = g0
-        # (u_{N-2}-4u_{N-1}+3uN)/(2h) = g1
-        mat[0, 0] = -3.0 / (2.0 * h)
-        mat[0, 1] = 2.0 / h
-        mat[0, 2] = -1.0 / (2.0 * h)
-        mat[N, N - 2] = 1.0 / (2.0 * h)
-        mat[N, N - 1] = -2.0 / h
-        mat[N, N] = 3.0 / (2.0 * h)
-    elif bc == "2p2":
-        if scheme == "implicit":
-            mat[0, 0] = 1.0 + 2.0 * r
-            mat[0, 1] = -2.0 * r
-            mat[N, N - 1] = -2.0 * r
-            mat[N, N] = 1.0 + 2.0 * r
-        else:  # crank
-            mat[0, 0] = 1.0 + r
-            mat[0, 1] = -r
-            mat[N, N - 1] = -r
-            mat[N, N] = 1.0 + r
-    else:
-        raise ValueError(f"unknown bc: {bc}")
-
-
-def _step_explicit(u, bc, h, r, t, t_new, a):
-    N = len(u) - 1
-    v = np.zeros_like(u)
-    for i in range(1, N):
-        v[i] = r * u[i - 1] + (1.0 - 2.0 * r) * u[i] + r * u[i + 1]
+def _step_explicit(u, bc, h, sigma, t, t_new, a):
+    v = np.empty_like(u)
+    v[1:-1] = sigma * u[:-2] + (1 - 2 * sigma) * u[1:-1] + sigma * u[2:]
     if bc == "2p1":
         v[0] = v[1] - h * g0(t_new, a)
-        v[N] = v[N - 1] + h * g1(t_new, a)
+        v[-1] = v[-2] + h * g1(t_new, a)
     elif bc == "3p2":
-        v[0] = (4.0 * v[1] - v[2] - 2.0 * h * g0(t_new, a)) / 3.0
-        v[N] = (4.0 * v[N - 1] - v[N - 2] + 2.0 * h * g1(t_new, a)) / 3.0
-    elif bc == "2p2":
-        v[0] = (1.0 - 2.0 * r) * u[0] + 2.0 * r * u[1] - 2.0 * r * h * g0(t, a)
-        v[N] = 2.0 * r * u[N - 1] + (1.0 - 2.0 * r) * u[N] + 2.0 * r * h * g1(t, a)
+        v[0] = (4 * v[1] - v[2] - 2 * h * g0(t_new, a)) / 3
+        v[-1] = (4 * v[-2] - v[-3] + 2 * h * g1(t_new, a)) / 3
     else:
-        raise ValueError(f"unknown bc: {bc}")
+        v[0] = (1 - 2 * sigma) * u[0] + 2 * sigma * u[1] - 2 * sigma * h * g0(t, a)
+        v[-1] = 2 * sigma * u[-2] + (1 - 2 * sigma) * u[-1] + 2 * sigma * h * g1(t, a)
     return v
 
 
-def _step_implicit(u, mat, scheme, bc, h, r, t, t_new, a):
-    N = len(u) - 1
-    rhs = np.zeros_like(u)
-    if scheme == "implicit":
-        rhs[1:N] = u[1:N]
-        if bc == "2p2":
-            rhs[0] = u[0] - 2.0 * r * h * g0(t_new, a)
-            rhs[N] = u[N] + 2.0 * r * h * g1(t_new, a)
-        else:
-            rhs[0] = g0(t_new, a)
-            rhs[N] = g1(t_new, a)
-    else:  # crank
-        for i in range(1, N):
-            rhs[i] = r / 2.0 * u[i - 1] + (1.0 - r) * u[i] + r / 2.0 * u[i + 1]
-        if bc == "2p1" or bc == "3p2":
-            rhs[0] = g0(t_new, a)
-            rhs[N] = g1(t_new, a)
-        else:
-            # Граничный узел с фиктивной точкой:
-            # (1+r)u0-r*u1=(1-r)u0_old+r*u1_old-rh(g0_old+g0_new)
-            rhs[0] = (1.0 - r) * u[0] + r * u[1] - r * h * (g0(t, a) + g0(t_new, a))
-            rhs[N] = r * u[N - 1] + (1.0 - r) * u[N] + r * h * (g1(t, a) + g1(t_new, a))
-    return np.linalg.solve(mat, rhs)
+def _step_weighted(u, scheme, bc, h, sigma, t, t_new, a):
+    theta = 1.0 if scheme == "implicit" else 0.5
+    n = len(u)
+    lower = np.zeros(n)
+    diag = np.zeros(n)
+    upper = np.zeros(n)
+    rhs = np.zeros(n)
+    lower[1:-1] = -theta * sigma
+    diag[1:-1] = 1 + 2 * theta * sigma
+    upper[1:-1] = -theta * sigma
+    rhs[1:-1] = u[1:-1] + (1 - theta) * sigma * (u[:-2] - 2 * u[1:-1] + u[2:])
+
+    if bc == "2p1":
+        diag[0], upper[0], rhs[0] = -1 / h, 1 / h, g0(t_new, a)
+        lower[-1], diag[-1], rhs[-1] = -1 / h, 1 / h, g1(t_new, a)
+    elif bc == "3p2":
+        left_factor = (-1 / (2 * h)) / upper[1]
+        diag[0] = -3 / (2 * h) - left_factor * lower[1]
+        upper[0] = 2 / h - left_factor * diag[1]
+        rhs[0] = g0(t_new, a) - left_factor * rhs[1]
+
+        right_factor = (1 / (2 * h)) / lower[-2]
+        lower[-1] = -2 / h - right_factor * diag[-2]
+        diag[-1] = 3 / (2 * h) - right_factor * upper[-2]
+        rhs[-1] = g1(t_new, a) - right_factor * rhs[-2]
+    else:
+        diag[0] = diag[-1] = 1 + 2 * theta * sigma
+        upper[0] = lower[-1] = -2 * theta * sigma
+        rhs[0] = (
+            u[0] + (1 - theta) * sigma * (2 * u[1] - 2 * u[0] - 2 * h * g0(t, a)) - 2 * theta * sigma * h * g0(t_new, a)
+        )
+        rhs[-1] = (
+            u[-1]
+            + (1 - theta) * sigma * (2 * u[-2] - 2 * u[-1] + 2 * h * g1(t, a))
+            + 2 * theta * sigma * h * g1(t_new, a)
+        )
+    return _sweep(lower, diag, upper, rhs)
+
+
+def _prepare(bc, a, N, tau, T, t_out):
+    if bc not in BOUNDARIES:
+        raise ValueError("Неизвестная аппроксимация границы")
+    if N < 3 or a <= 0 or tau <= 0 or T <= 0:
+        raise ValueError("Требуется N >= 3 и положительные a, tau, T")
+    steps = round(T / tau)
+    if steps < 1 or not math.isclose(steps * tau, T, rel_tol=1e-10, abs_tol=1e-12):
+        raise ValueError("T должно быть кратно tau")
+    targets = [T] if t_out is None else list(t_out)
+    output_steps = {}
+    for tt in targets:
+        j = round(tt / tau)
+        if j < 0 or j > steps or not math.isclose(j * tau, tt, rel_tol=1e-10, abs_tol=1e-12):
+            raise ValueError(f"Время вывода {tt} должно быть узлом сетки [0, T]")
+        output_steps.setdefault(j, []).append(tt)
+    h = L / N
+    sigma = a * a * tau / (h * h)
+    xs = np.linspace(0, L, N + 1)
+    u = np.sin(xs)
+    saved = {tt: u.copy() for tt in output_steps.get(0, [])}
+    return xs, u, saved, h, sigma, steps, output_steps
+
+
+def solve_explicit(bc, a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
+    xs, u, saved, h, sigma, steps, output_steps = _prepare(bc, a, N, tau, T, t_out)
+    if sigma > 0.5 + 1e-12:
+        raise ValueError(f"Явная схема неустойчива: σ={sigma:.4g} > 1/2")
+    for k in range(steps):
+        t, t_new = k * tau, (k + 1) * tau
+        u = _step_explicit(u, bc, h, sigma, t, t_new, a)
+        for tt in output_steps.get(k + 1, []):
+            saved[tt] = u.copy()
+    return xs, saved
+
+
+def solve_implicit(bc, a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
+    xs, u, saved, h, sigma, steps, output_steps = _prepare(bc, a, N, tau, T, t_out)
+    for k in range(steps):
+        t, t_new = k * tau, (k + 1) * tau
+        u = _step_weighted(u, "implicit", bc, h, sigma, t, t_new, a)
+        for tt in output_steps.get(k + 1, []):
+            saved[tt] = u.copy()
+    return xs, saved
+
+
+def solve_crank(bc, a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
+    xs, u, saved, h, sigma, steps, output_steps = _prepare(bc, a, N, tau, T, t_out)
+    for k in range(steps):
+        t, t_new = k * tau, (k + 1) * tau
+        u = _step_weighted(u, "crank", bc, h, sigma, t, t_new, a)
+        for tt in output_steps.get(k + 1, []):
+            saved[tt] = u.copy()
+    return xs, saved
+
+
+SOLVERS = {
+    "explicit": solve_explicit,
+    "implicit": solve_implicit,
+    "crank": solve_crank,
+}
+
+
+def _error_cell(scheme, bc, a, N, tau, T, at):
+    try:
+        xs, saved = SOLVERS[scheme](bc, a, N, tau, T, [at])
+        return f"{max_error(saved[at], xs, at, a):.3e}"
+    except ValueError as exc:
+        if "неустойчива" in str(exc):
+            return "неуст."
+        raise
 
 
 def report_errors(a=1.0, N=50, tau=0.001, T=1.0, t_out=None):
     if t_out is None:
         t_out = [0.2, 0.5, 1.0]
-    schemes = ["explicit", "implicit", "crank"]
-    bcs = ["2p1", "3p2", "2p2"]
-    print(f"N={N} h={L / N:.5f} tau={tau} T={T}")
-    header = f"{'схема':<10}{'гу':<5}" + "".join(f"t={t:<10}" for t in t_out)
-    print(header)
-    for sc in schemes:
-        for bc in bcs:
-            try:
-                xs, saved = solve(sc, bc, a, N, tau, T, t_out)
-                errs = [max_error(saved[t], xs, t, a) for t in t_out]
-                row = f"{sc:<10}{bc:<5}" + "".join(f"{e:<10.3e}" for e in errs)
-            except Exception as e:  # расходимость и т.п.
-                row = f"{sc:<10}{bc:<5}fail"
-            print(row)
+    print(f"N={N}, h={L / N:.6g}, tau={tau}, T={T}, a={a}")
+    print(f"{'схема':<10}{'ГУ':<6}" + "".join(f"t={tt:<12}" for tt in t_out))
+    for scheme in SCHEMES:
+        for bc in BOUNDARIES:
+            xs, saved = SOLVERS[scheme](bc, a, N, tau, T, t_out)
+            errors = [max_error(saved[tt], xs, tt, a) for tt in t_out]
+            print(f"{scheme:<10}{bc:<6}" + "".join(f"{err:<14.3e}" for err in errors))
 
 
 def main():
     a = 1.0
-
-    print("max-ошибка:")
+    print("Максимальная ошибка по x:")
     report_errors(a, N=50, tau=0.001, T=1.0, t_out=[0.2, 0.5, 1.0])
 
-    print("\nh: tau=0.0001 T=0.5")
-    print(f"{'N':<6}{'схема':<10}{'2p1':<12}{'3p2':<12}{'2p2':<12}")
-    for N in [10, 20, 40, 80, 160]:
-        for sc in ["explicit", "implicit", "crank"]:
-            errs = []
-            for bc in ["2p1", "3p2", "2p2"]:
-                try:
-                    xs, saved = solve(sc, bc, a, N, 0.0001, 0.5, [0.5])
-                    errs.append(f"{max_error(saved[0.5], xs, 0.5, a):.3e}")
-                except Exception:
-                    errs.append("fail")
-            print(f"{N:<6}{sc:<10}{errs[0]:<12}{errs[1]:<12}{errs[2]:<12}")
+    print("\nСходимость по h: tau=0.0001, T=0.5")
+    print(f"{'N':<6}{'схема':<10}" + "".join(f"{bc:<12}" for bc in BOUNDARIES))
+    for N in (10, 20, 40, 80, 160):
+        for scheme in SCHEMES:
+            cells = [_error_cell(scheme, bc, a, N, 0.0001, 0.5, 0.5) for bc in BOUNDARIES]
+            print(f"{N:<6}{scheme:<10}" + "".join(f"{cell:<12}" for cell in cells))
 
-    print("\ntau: N=50 T=0.5")
-    print(f"{'tau':<10}{'схема':<10}{'2p1':<12}{'3p2':<12}{'2p2':<12}")
-    for tau in [0.01, 0.005, 0.002, 0.001, 0.0005]:
-        for sc in ["explicit", "implicit", "crank"]:
-            errs = []
-            for bc in ["2p1", "3p2", "2p2"]:
-                try:
-                    xs, saved = solve(sc, bc, a, 50, tau, 0.5, [0.5])
-                    e = max_error(saved[0.5], xs, 0.5, a)
-                    errs.append(f"{e:.3e}" if e < 1e6 else "fail")
-                except Exception:
-                    errs.append("fail")
-            print(f"{tau:<10}{sc:<10}{errs[0]:<12}{errs[1]:<12}{errs[2]:<12}")
+    print("\nСходимость по tau: N=50, T=0.5")
+    print(f"{'tau':<10}{'схема':<10}" + "".join(f"{bc:<12}" for bc in BOUNDARIES))
+    for tau in (0.01, 0.005, 0.002, 0.001, 0.0005):
+        for scheme in SCHEMES:
+            cells = [_error_cell(scheme, bc, a, 50, tau, 0.5, 0.5) for bc in BOUNDARIES]
+            print(f"{tau:<10}{scheme:<10}" + "".join(f"{cell:<12}" for cell in cells))
 
 
 if __name__ == "__main__":
