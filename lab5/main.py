@@ -256,22 +256,49 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
     deviation_N = 50
     deviation_tau = 0.001
     fig, ax = plt.subplots(figsize=(8, 5))
+    ax.axhline(
+        0.0,
+        color="black",
+        linewidth=1.0,
+        label=r"Аналитическое решение: $|U-U|=0$",
+    )
+    max_deviations = {}
     for label, solver in SCHEMES:
         xs, deviation = _solution_error(solver, a, deviation_N, deviation_tau, T)
-        ax.plot(xs, deviation, linewidth=1.8, label=label)
-    ax.axhline(0.0, color="black", linewidth=0.8)
+        absolute_deviation = np.abs(deviation)
+        max_deviation = float(np.max(absolute_deviation))
+        max_deviations[label] = max_deviation
+        ax.plot(
+            xs,
+            absolute_deviation,
+            linewidth=1.8,
+            label=rf"{label}: $\max |E|={max_deviation:.2e}$",
+        )
+
+    best_method = min(max_deviations, key=max_deviations.get)  # type: ignore
+    conclusion = (
+        f"На выбранной сетке наименьшая максимальная ошибка у метода "
+        f"«{best_method}»: {max_deviations[best_method]:.2e}."
+    )
     ax.set_xlabel(r"$x$")
-    ax.set_ylabel(r"$u_h(x, T)-U(x, T)$")
+    ax.set_ylabel(r"$|u_h(x, T)-U(x, T)|$")
     ax.set_title(
-        rf"Отклонение от аналитического решения: $N={deviation_N}$, "
+        rf"Абсолютное отклонение от аналитического решения: $N={deviation_N}$, "
         rf"$\tau={deviation_tau:g}$, $T={T}$, ГУ 2-точ. $O(h^2)$"
     )
     ax.grid(True, alpha=0.3)
     ax.legend()
-    fig.tight_layout()
+    fig.text(0.5, 0.015, conclusion, ha="center")
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
     path = output_dir / "solution_deviation.png"
     fig.savefig(path, dpi=180, bbox_inches="tight")
     paths.append(path)
+
+    print(
+        f"{conclusion} Сравнение относится к N={deviation_N}, "
+        f"tau={deviation_tau:g}, T={T}; в общем случае схема "
+        "Кранка—Николсона имеет более высокий порядок точности по времени."
+    )
 
     if show:
         plt.show()
