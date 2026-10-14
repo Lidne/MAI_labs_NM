@@ -5,6 +5,13 @@ import numpy as np
 
 L = math.pi
 BOUNDARIES = ("2p1", "3p2", "2p2")
+BOUNDARY_LABELS = {
+    "2p1": r"2-точ. $O(h)$",
+    "3p2": r"3-точ. $O(h^2)$",
+    "2p2": r"2-точ. $O(h^2)$",
+}
+BOUNDARY_LINESTYLES = {"2p1": "-", "3p2": "--", "2p2": ":"}
+SCHEME_COLORS = ("tab:blue", "tab:orange", "tab:green")
 
 
 def exact(x, t, a):
@@ -216,15 +223,24 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
     fixed_N = 20
     tau_values = np.array([0.01, 0.005, 0.0025, 0.00125, 0.000625])
     fig, ax = plt.subplots(figsize=(8, 5))
-    for label, solver in SCHEMES:
-        errors = []
-        for tau in tau_values:
-            xs, deviation = _solution_error(solver, a, fixed_N, float(tau), T)
-            errors.append(np.max(np.abs(deviation)))
-        ax.loglog(tau_values, errors, "o-", linewidth=1.8, label=label)
+    for (label, solver), color in zip(SCHEMES, SCHEME_COLORS):
+        for bc in BOUNDARIES:
+            errors = []
+            for tau in tau_values:
+                xs, deviation = _solution_error(solver, a, fixed_N, float(tau), T, bc)
+                errors.append(np.max(np.abs(deviation)))
+            ax.loglog(
+                tau_values,
+                errors,
+                marker="o",
+                linestyle=BOUNDARY_LINESTYLES[bc],
+                color=color,
+                linewidth=1.8,
+                label=f"{label}, {BOUNDARY_LABELS[bc]}",
+            )
     ax.set_xlabel(r"Шаг по времени $\tau$")
     ax.set_ylabel(r"$\max_i |u_i-U(x_i, T)|$")
-    ax.set_title(rf"Измельчение по $\tau$: $h=\pi/{fixed_N}$, $T={T}$, ГУ 2-точ. $O(h^2)$")
+    ax.set_title(rf"Измельчение по $\tau$: $h=\pi/{fixed_N}$, $T={T}$")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
     fig.tight_layout()
@@ -237,15 +253,24 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
     n_values = np.array([10, 20, 40, 80, 160])
     h_values = L / n_values
     fig, ax = plt.subplots(figsize=(8, 5))
-    for label, solver in SCHEMES:
-        errors = []
-        for N in n_values:
-            xs, deviation = _solution_error(solver, a, int(N), fixed_tau, T)
-            errors.append(np.max(np.abs(deviation)))
-        ax.loglog(h_values, errors, "o-", linewidth=1.8, label=label)
+    for (label, solver), color in zip(SCHEMES, SCHEME_COLORS):
+        for bc in BOUNDARIES:
+            errors = []
+            for N in n_values:
+                xs, deviation = _solution_error(solver, a, int(N), fixed_tau, T, bc)
+                errors.append(np.max(np.abs(deviation)))
+            ax.loglog(
+                h_values,
+                errors,
+                marker="o",
+                linestyle=BOUNDARY_LINESTYLES[bc],
+                color=color,
+                linewidth=1.8,
+                label=f"{label}, {BOUNDARY_LABELS[bc]}",
+            )
     ax.set_xlabel(r"Шаг по пространству $h$")
     ax.set_ylabel(r"$\max_i |u_i-U(x_i, T)|$")
-    ax.set_title(rf"Измельчение по $h$: $\tau={fixed_tau:g}$, $T={T}$, ГУ 2-точ. $O(h^2)$")
+    ax.set_title(rf"Измельчение по $h$: $\tau={fixed_tau:g}$, $T={T}$")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend()
     fig.tight_layout()
@@ -263,17 +288,21 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
         label=r"Аналитическое решение: $|U-U|=0$",
     )
     max_deviations = {}
-    for label, solver in SCHEMES:
-        xs, deviation = _solution_error(solver, a, deviation_N, deviation_tau, T)
-        absolute_deviation = np.abs(deviation)
-        max_deviation = float(np.max(absolute_deviation))
-        max_deviations[label] = max_deviation
-        ax.plot(
-            xs,
-            absolute_deviation,
-            linewidth=1.8,
-            label=rf"{label}: $\max |E|={max_deviation:.2e}$",
-        )
+    for (label, solver), color in zip(SCHEMES, SCHEME_COLORS):
+        for bc in BOUNDARIES:
+            xs, deviation = _solution_error(solver, a, deviation_N, deviation_tau, T, bc)
+            absolute_deviation = np.abs(deviation)
+            max_deviation = float(np.max(absolute_deviation))
+            method_name = f"{label}, {BOUNDARY_LABELS[bc]}"
+            max_deviations[method_name] = max_deviation
+            ax.plot(
+                xs,
+                absolute_deviation,
+                linestyle=BOUNDARY_LINESTYLES[bc],
+                color=color,
+                linewidth=1.8,
+                label=rf"{method_name}: $\max |E|={max_deviation:.2e}$",
+            )
 
     best_method = min(max_deviations, key=max_deviations.get)  # type: ignore
     conclusion = (
@@ -284,7 +313,7 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
     ax.set_ylabel(r"$|u_h(x, T)-U(x, T)|$")
     ax.set_title(
         rf"Абсолютное отклонение от аналитического решения: $N={deviation_N}$, "
-        rf"$\tau={deviation_tau:g}$, $T={T}$, ГУ 2-точ. $O(h^2)$"
+        rf"$\tau={deviation_tau:g}$, $T={T}$"
     )
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -382,7 +411,7 @@ def main():
         _print_grid_row(tau, "implicit", implicit_errors, 10)
         _print_grid_row(tau, "crank", crank_errors, 10)
 
-    print("\nГрафики (ГУ: двухточечная аппроксимация O(h^2)):")
+    print("\nГрафики (все варианты аппроксимации ГУ):")
     for path in plot_results(a=a, T=0.5):
         print(path)
 
