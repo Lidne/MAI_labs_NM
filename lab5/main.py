@@ -15,15 +15,15 @@ SCHEME_COLORS = ("tab:blue", "tab:orange", "tab:green")
 
 
 def exact(x, t, a):
-    return math.exp(-a * a * t) * math.sin(x)
+    return math.exp(-a * t) * math.sin(x)
 
 
 def g0(t, a):
-    return math.exp(-a * a * t)
+    return math.exp(-a * t)
 
 
 def g1(t, a):
-    return -math.exp(-a * a * t)
+    return -math.exp(-a * t)
 
 
 def max_error(u, xs, t, a):
@@ -156,7 +156,7 @@ def _prepare(bc, a, N, tau, T, t_out):
             raise ValueError(f"Время вывода {tt} должно быть узлом сетки [0, T]")
         output_steps.setdefault(j, []).append(tt)
     h = L / N
-    sigma = a * a * tau / (h * h)
+    sigma = a * tau / (h * h)
     xs = np.linspace(0, L, N + 1)
     u = np.sin(xs)
     saved = {tt: u.copy() for tt in output_steps.get(0, [])}
@@ -205,8 +205,47 @@ SCHEMES = (
 def _solution_error(solver, a, N, tau, T, bc="2p2"):
     xs, saved = solver(bc, a, N, tau, T, [T])
     numerical = saved[T]
-    analytical = np.exp(-a * a * T) * np.sin(xs)
+    analytical = np.exp(-a * T) * np.sin(xs)
     return xs, numerical - analytical
+
+
+def plot_solutions(a, T, output_dir, filename, N=10, tau=0.01):
+    import matplotlib.pyplot as plt
+
+    xs = np.linspace(0, L, N + 1)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(
+        xs,
+        np.exp(-a * T) * np.sin(xs),
+        color="black",
+        linestyle="--",
+        linewidth=1.5,
+        label="Аналитическое решение",
+    )
+    for (label, solver), color in zip(SCHEMES, SCHEME_COLORS):
+        for bc in BOUNDARIES:
+            _, saved = solver(bc, a, N, tau, T, [T])
+            ax.plot(
+                xs,
+                saved[T],
+                linestyle=BOUNDARY_LINESTYLES[bc],
+                color=color,
+                linewidth=1.5,
+                marker={"2p1": "o", "3p2": "s", "2p2": "^"}[bc],
+                markevery=2,
+                markersize=4,
+                label=f"{label}, {BOUNDARY_LABELS[bc]}",
+            )
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$u(x,T)$")
+    ax.set_title(rf"Решения при $a={a:g}$, $N={N}$, $\tau={tau:g}$, $T={T:g}$")
+    ax.set_ylim(-0.05, 1.0)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+    fig.tight_layout()
+    path = output_dir / filename
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    return path
 
 
 def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
@@ -217,7 +256,10 @@ def plot_results(a=1.0, T=0.5, output_dir=None, show=False):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    paths = []
+    paths = [plot_solutions(a, T, output_dir, "solutions_fixed_time.png")]
+    for solution_time, filename in ((0.1, "solutions_t_0_1.png"), (2.0, "solutions_t_2.png")):
+        if not math.isclose(solution_time, T):
+            paths.append(plot_solutions(a, solution_time, output_dir, filename))
 
     # N=20 обеспечивает устойчивость явной схемы для всех выбранных tau.
     fixed_N = 20
@@ -396,7 +438,7 @@ def main():
         implicit_errors = []
         crank_errors = []
         for bc in BOUNDARIES:
-            if a * a * tau / (L / 50) ** 2 <= 0.5 + 1e-12:
+            if a * tau / (L / 50) ** 2 <= 0.5 + 1e-12:
                 xs, saved = solve_explicit(bc, a, 50, tau, 0.5, [0.5])
                 explicit_errors.append(_one_error(xs, saved, 0.5, a))
             else:
