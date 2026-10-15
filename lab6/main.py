@@ -1,6 +1,7 @@
 """Численное решение u_tt = u_xx - 5u на отрезке [0, 1]."""
 
 import math
+from pathlib import Path
 
 import numpy as np
 from scipy.sparse import lil_matrix
@@ -140,5 +141,114 @@ def print_errors():
             print(f"{scheme:<10} {boundary:<8} " + " ".join(f"{e:12.5e}" for e in values))
 
 
+def plot_results():
+    import matplotlib
+
+    matplotlib.use("Agg")  # Сохраняем картинки без графического окна.
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import NullLocator
+
+    output_dir = Path(__file__).resolve().parent / "plots"
+    output_dir.mkdir(exist_ok=True)
+    boundary_names = {"2p1": "2 точки, O(h)", "3p2": "3 точки, O(h²)", "2p2": "2 точки, O(h²)"}
+    colors = {"2p1": "tab:red", "3p2": "tab:orange", "2p2": "tab:blue"}
+    scheme_names = {"explicit": "Явная схема", "implicit": "Неявная схема"}
+
+    # Профиль решения в три момента: линии должны почти совпадать.
+    x, explicit = solve("explicit", "2p2", 2, n=20, steps=100)
+    _, implicit = solve("implicit", "2p2", 2, n=20, steps=100)
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.8), sharey=True)
+    for ax, t in zip(axes, (0.25, 0.5, 1.0)):
+        ax.plot(x, exact(x, t), color="black", label="Точное")
+        ax.plot(x, explicit[t], "o", markevery=3, ms=4, label="Явная")
+        ax.plot(x, implicit[t], "x", markevery=3, ms=4, label="Неявная")
+        ax.set_title(f"t = {t:g}")
+        ax.set_xlabel("x")
+        ax.grid(alpha=0.3)
+    axes[0].set_ylabel("u(x, t)")
+    axes[0].legend()
+    fig.suptitle("Решение и точная функция: 2 точки O(h²), второй начальный слой")
+    fig.tight_layout()
+    fig.savefig(output_dir / "solutions.png", dpi=180)
+    plt.close(fig)
+
+    # Ошибка относительно точного решения на всём отрезке времени.
+    times = np.linspace(0, 1, 101)
+    fig, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+    for ax, boundary in zip(axes, BOUNDARIES):
+        for scheme, marker in (("explicit", "o"), ("implicit", "x")):
+            x, saved = solve(scheme, boundary, 2, output_times=times)
+            errors = [error(saved[t], x, t) for t in times]
+            ax.plot(times, errors, marker=marker, markevery=[25, 50, 100], label=scheme_names[scheme])
+        ax.set_title(boundary_names[boundary])
+        ax.set_xlabel("Время t")
+        ax.set_xticks((0, 0.25, 0.5, 0.75, 1))
+        ax.grid(alpha=0.3)
+    axes[0].set_ylabel("Максимальная ошибка")
+    axes[0].legend()
+    fig.suptitle("Ошибка относительно U(x, t) = exp(2x) cos(t); h = 0.025, τ = 0.005")
+    fig.tight_layout()
+    fig.savefig(output_dir / "error_over_time.png", dpi=180)
+    plt.close(fig)
+
+    # Как выбор границы и первого временного слоя влияет на ошибку.
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
+    positions = np.arange(len(BOUNDARIES))
+    for ax, scheme in zip(axes, scheme_names):
+        for order, shift, label in ((1, -0.18, "1-й порядок"), (2, 0.18, "2-й порядок")):
+            values = []
+            for boundary in BOUNDARIES:
+                x, saved = solve(scheme, boundary, order, output_times=(1.0,))
+                values.append(error(saved[1.0], x, 1.0))
+            ax.bar(positions + shift, values, width=0.34, label=label)
+        ax.set_title(scheme_names[scheme])
+        ax.set_xticks(positions, [boundary_names[b] for b in BOUNDARIES])
+        ax.set_yscale("log")
+        ax.grid(axis="y", alpha=0.3)
+    axes[0].set_ylabel("Максимальная ошибка при t = 1 (лог. шкала)")
+    axes[0].legend()
+    fig.suptitle("Влияние граничного условия и начального слоя; h = 0.025, τ = 0.005")
+    fig.tight_layout()
+    fig.savefig(output_dir / "methods.png", dpi=180)
+    plt.close(fig)
+
+    # Изменяем только один шаг сетки за раз.
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    steps_values = (100, 200, 400, 800)
+    n_values = (10, 20, 40, 80)
+    for row, scheme in enumerate(scheme_names):
+        for boundary in BOUNDARIES:
+            time_errors = []
+            space_errors = []
+            for steps in steps_values:
+                x, saved = solve(scheme, boundary, 2, n=20, steps=steps, output_times=(1.0,))
+                time_errors.append(error(saved[1.0], x, 1.0))
+            for n in n_values:
+                x, saved = solve(scheme, boundary, 2, n=n, steps=400, output_times=(1.0,))
+                space_errors.append(error(saved[1.0], x, 1.0))
+            axes[row, 0].loglog([1 / s for s in steps_values], time_errors, "o-", color=colors[boundary], label=boundary_names[boundary])
+            axes[row, 1].loglog([1 / n for n in n_values], space_errors, "o-", color=colors[boundary], label=boundary_names[boundary])
+        axes[row, 0].set_title(f"{scheme_names[scheme]}: меняем τ, h = 0.05")
+        axes[row, 1].set_title(f"{scheme_names[scheme]}: меняем h, τ = 0.0025")
+        for ax in axes[row]:
+            ax.set_ylabel("Максимальная ошибка при t = 1")
+            ax.grid(which="both", alpha=0.3)
+        axes[row, 0].set_xticks([1 / s for s in steps_values], [f"{1/s:g}" for s in steps_values])
+        axes[row, 1].set_xticks([1 / n for n in n_values], [f"{1/n:g}" for n in n_values])
+        axes[row, 0].xaxis.set_minor_locator(NullLocator())
+        axes[row, 1].xaxis.set_minor_locator(NullLocator())
+    axes[1, 0].set_xlabel("Шаг по времени τ")
+    axes[1, 1].set_xlabel("Шаг по пространству h")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3)
+    fig.suptitle("Зависимость ошибки от шагов сетки; второй начальный слой")
+    fig.tight_layout(rect=(0, 0.05, 1, 0.96))
+    fig.savefig(output_dir / "grid_steps.png", dpi=180)
+    plt.close(fig)
+
+    print(f"\nГрафики сохранены в {output_dir}")
+
+
 if __name__ == "__main__":
     print_errors()
+    plot_results()
