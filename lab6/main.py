@@ -154,20 +154,24 @@ def plot_results():
     colors = {"2p1": "tab:red", "3p2": "tab:orange", "2p2": "tab:blue"}
     scheme_names = {"explicit": "Явная схема", "implicit": "Неявная схема"}
 
-    # Профиль решения в три момента: линии должны почти совпадать.
-    x, explicit = solve("explicit", "2p2", 2, n=20, steps=100)
-    _, implicit = solve("implicit", "2p2", 2, n=20, steps=100)
-    fig, axes = plt.subplots(1, 3, figsize=(13, 3.8), sharey=True)
-    for ax, t in zip(axes, (0.25, 0.5, 1.0)):
-        ax.plot(x, exact(x, t), color="black", label="Точное")
-        ax.plot(x, explicit[t], "o", markevery=3, ms=4, label="Явная")
-        ax.plot(x, implicit[t], "x", markevery=3, ms=4, label="Неявная")
-        ax.set_title(f"t = {t:g}")
-        ax.set_xlabel("x")
-        ax.grid(alpha=0.3)
-    axes[0].set_ylabel("u(x, t)")
-    axes[0].legend()
-    fig.suptitle("Решение и точная функция: 2 точки O(h²), второй начальный слой")
+    # Строки — моменты времени, столбцы — три варианта краевых условий.
+    times_for_solutions = (0.25, 0.5, 1.0)
+    fig, axes = plt.subplots(3, 3, figsize=(12, 9), sharex=True, sharey="row")
+    for col, boundary in enumerate(BOUNDARIES):
+        x, explicit = solve("explicit", boundary, 2, n=20, steps=100)
+        _, implicit = solve("implicit", boundary, 2, n=20, steps=100)
+        for row, t in enumerate(times_for_solutions):
+            ax = axes[row, col]
+            ax.plot(x, exact(x, t), color="black", label="Точное")
+            ax.plot(x, explicit[t], "o", markevery=4, ms=4, label="Явная")
+            ax.plot(x, implicit[t], "x", markevery=4, ms=4, label="Неявная")
+            ax.grid(alpha=0.3)
+        axes[0, col].set_title(boundary_names[boundary])
+        axes[-1, col].set_xlabel("x")
+    for row, t in enumerate(times_for_solutions):
+        axes[row, 0].set_ylabel(f"t = {t:g}\nu(x, t)")
+    axes[0, 0].legend()
+    fig.suptitle("Численное и точное решения: три краевых условия и три момента времени")
     fig.tight_layout()
     fig.savefig(output_dir / "solutions.png", dpi=180)
     plt.close(fig)
