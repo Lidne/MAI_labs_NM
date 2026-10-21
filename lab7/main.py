@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 METHODS = {"liebmann": "Либман", "seidel": "Зейдель", "верхняя_релаксация": "Метод верхней релаксации (ω = 1.7)"}
 
 
@@ -20,18 +19,10 @@ def set_side_boundaries(u, y, hx):
     # Углы уже заданы условиями Дирихле при y = 0 и y = 1.
 
 
-def solve(method, nx=40, ny=20, eps=1e-8, omega=1.7, max_iter=100_000):
-    """Вернуть x, y, u[i, j] и историю максимальной невязки уравнения.
-
-    nx, ny — числа интервалов; eps — допуск на невязку, а не на ошибку к U.
-    Во всех методах решается одна и та же разностная система.
-    """
-    if method not in METHODS:
-        raise ValueError("Метод должен быть liebmann, seidel или верхняя_релаксация")
+def prepare_system(nx, ny, eps, max_iter):
+    """Подготовить сетку, начальное приближение и коэффициенты общей системы."""
     if nx < 3 or ny < 2 or not np.isfinite(eps) or eps <= 0 or max_iter < 1:
         raise ValueError("Нужны nx >= 3, ny >= 2, eps > 0 и max_iter >= 1")
-    if not 0 < omega < 2:
-        raise ValueError("Для релаксации нужно 0 < omega < 2")
 
     x = np.linspace(0, np.pi, nx + 1)
     y = np.linspace(0, 1, ny + 1)
@@ -54,41 +45,101 @@ def solve(method, nx=40, ny=20, eps=1e-8, omega=1.7, max_iter=100_000):
     d[[0, -1]] -= 4 * ax / 3
     b[0, :] = b[-1, :] = -2 * np.exp(y[1:-1]) / (3 * hx)
 
-    def rhs(values):
-        return (
-            left[:, None] * values[:-2, 1:-1]
-            + right[:, None] * values[2:, 1:-1]
-            + ay * (values[1:-1, :-2] + values[1:-1, 2:])
-            + b
-        )
+    return x, y, u, left, right, d, ay, b
 
+
+def rhs(u, left, right, ay, b):
+    return left[:, None] * u[:-2, 1:-1] + right[:, None] * u[2:, 1:-1] + ay * (u[1:-1, :-2] + u[1:-1, 2:]) + b
+
+
+def solve_liebmann(nx=40, ny=20, eps=1e-8, max_iter=100_000):
+    """Метод Либмана: все новые значения вычисляются по старому приближению.
+
+    Вернуть x, y, u[i, j] и историю невязки. nx, ny — числа интервалов,
+    eps — допуск на невязку разностной системы, а не на ошибку к U.
+    """
+    x, y, u, left, right, d, ay, b = prepare_system(nx, ny, eps, max_iter)
     history = []
-    weight = omega if method == "верхняя_релаксация" else 1.0
     for _ in range(max_iter):
-        if method == "liebmann":
-            # Правая часть целиком вычисляется до присваивания новых значений.
-            u[1:-1, 1:-1] = rhs(u) / d[:, None]
-        else:
-            for i in range(1, nx):
-                for j in range(1, ny):
-                    value = (
-                        left[i - 1] * u[i - 1, j]
-                        + right[i - 1] * u[i + 1, j]
-                        + ay * (u[i, j - 1] + u[i, j + 1])
-                        + b[i - 1, j - 1]
-                    ) / d[i - 1]
-                    # Слева и снизу уже лежат значения текущего прохода.
-                    u[i, j] += weight * (value - u[i, j])
+        # Правая часть целиком вычисляется до присваивания новых значений.
+        u[1:-1, 1:-1] = rhs(u, left, right, ay, b) / d[:, None]
 
-        residual = float(np.max(np.abs(rhs(u) - d[:, None] * u[1:-1, 1:-1])))
+        residual = float(np.max(np.abs(rhs(u, left, right, ay, b) - d[:, None] * u[1:-1, 1:-1])))
+        history.append(residual)
+        if not np.isfinite(residual):
+            raise RuntimeError("Метод Либмана расходится")
+        if residual <= eps:
+            set_side_boundaries(u, y, np.pi / nx)
+            return x, y, u, np.array(history)
+
+    raise RuntimeError(f"Метод Либмана не сошёлся за {max_iter} итераций")
+
+
+def solve_seidel(nx=40, ny=20, eps=1e-8, max_iter=100_000):
+    """Метод Зейделя: каждый узел сразу получает вычисленное значение.
+
+    Вернуть x, y, u[i, j] и историю невязки.
+    """
+    x, y, u, left, right, d, ay, b = prepare_system(nx, ny, eps, max_iter)
+    history = []
+    for _ in range(max_iter):
+        for i in range(1, nx):
+            for j in range(1, ny):
+                # Слева и снизу уже лежат значения текущего прохода.
+                u[i, j] = (
+                    left[i - 1] * u[i - 1, j]
+                    + right[i - 1] * u[i + 1, j]
+                    + ay * (u[i, j - 1] + u[i, j + 1])
+                    + b[i - 1, j - 1]
+                ) / d[i - 1]
+
+        residual = float(np.max(np.abs(rhs(u, left, right, ay, b) - d[:, None] * u[1:-1, 1:-1])))
+        history.append(residual)
+        if not np.isfinite(residual):
+            raise RuntimeError("Метод Зейделя расходится")
+        if residual <= eps:
+            set_side_boundaries(u, y, np.pi / nx)
+            return x, y, u, np.array(history)
+
+    raise RuntimeError(f"Метод Зейделя не сошёлся за {max_iter} итераций")
+
+
+def solve_relaxation(nx=40, ny=20, eps=1e-8, omega=1.7, max_iter=100_000):
+    """Метод верхней релаксации: поправка Зейделя умножается на omega.
+
+    Вернуть x, y, u[i, j] и историю невязки.
+    """
+    if not 0 < omega < 2:
+        raise ValueError("Для релаксации нужно 0 < omega < 2")
+    x, y, u, left, right, d, ay, b = prepare_system(nx, ny, eps, max_iter)
+    history = []
+    for _ in range(max_iter):
+        for i in range(1, nx):
+            for j in range(1, ny):
+                value = (
+                    left[i - 1] * u[i - 1, j]
+                    + right[i - 1] * u[i + 1, j]
+                    + ay * (u[i, j - 1] + u[i, j + 1])
+                    + b[i - 1, j - 1]
+                ) / d[i - 1]
+                u[i, j] += omega * (value - u[i, j])
+
+        residual = float(np.max(np.abs(rhs(u, left, right, ay, b) - d[:, None] * u[1:-1, 1:-1])))
         history.append(residual)
         if not np.isfinite(residual):
             raise RuntimeError("Итерации расходятся; попробуйте уменьшить omega")
         if residual <= eps:
-            set_side_boundaries(u, y, hx)
+            set_side_boundaries(u, y, np.pi / nx)
             return x, y, u, np.array(history)
 
-    raise RuntimeError(f"Метод {method} не сошёлся за {max_iter} итераций")
+    raise RuntimeError(f"Метод верхней релаксации не сошёлся за {max_iter} итераций")
+
+
+SOLVERS = {
+    "liebmann": solve_liebmann,
+    "seidel": solve_seidel,
+    "верхняя_релаксация": solve_relaxation,
+}
 
 
 def grid_study():
@@ -106,10 +157,10 @@ def grid_study():
             for method, name in METHODS.items():
                 key = (method, nx, ny)
                 if key not in results:
-                    x, y, u, history = solve(method, nx, ny)
+                    x, y, u, history = SOLVERS[method](nx, ny)
                     results[key] = (float(np.max(np.abs(u - exact(x, y)))), len(history))
                 error, iterations = results[key]
-                print(f"{nx:4d} {ny:4d} {np.pi/nx:10.6f} {1/ny:10.6f} {name:<40} {error:12.5e} {iterations:9d}")
+                print(f"{nx:4d} {ny:4d} {np.pi / nx:10.6f} {1 / ny:10.6f} {name:<40} {error:12.5e} {iterations:9d}")
     return studies, results
 
 
@@ -137,9 +188,7 @@ def plot_results(solutions, studies, errors):
         solution_picture = axes[0, col].pcolormesh(
             x, y, u.T, shading="auto", cmap="viridis", vmin=solution_min, vmax=solution_max
         )
-        error_picture = axes[1, col].pcolormesh(
-            x, y, error.T, shading="auto", cmap="magma", vmin=0, vmax=error_max
-        )
+        error_picture = axes[1, col].pcolormesh(x, y, error.T, shading="auto", cmap="magma", vmin=0, vmax=error_max)
         axes[0, col].set_title(name, fontsize=11)
         axes[1, col].set_title(f"Максимальная ошибка: {error.max():.5e}", fontsize=11)
         for ax in axes[:, col]:
@@ -179,17 +228,20 @@ def plot_results(solutions, studies, errors):
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.7))
     for index, (ax, (title, grids)) in enumerate(zip(axes, studies.items())):
         steps = [1 / ny if index == 1 else np.pi / nx for nx, ny in grids]
-        for (method, name), marker, size, style in zip(
-            METHODS.items(), ("o", "s", "+"), (10, 7, 6), ("-", "--", ":")
-        ):
+        for (method, name), marker, size, style in zip(METHODS.items(), ("o", "s", "+"), (10, 7, 6), ("-", "--", ":")):
             values = [errors[method, nx, ny][0] for nx, ny in grids]
             ax.loglog(
-                steps, values, marker=marker, markersize=size, markerfacecolor="none",
-                linestyle=style, label=name,
+                steps,
+                values,
+                marker=marker,
+                markersize=size,
+                markerfacecolor="none",
+                linestyle=style,
+                label=name,
             )
         if index == 2:
             nx, ny = grids[-1]
-            reference = errors["верхняя_релаксация", nx, ny][0] * (np.array(steps) / steps[-1])**2
+            reference = errors["верхняя_релаксация", nx, ny][0] * (np.array(steps) / steps[-1]) ** 2
             ax.loglog(steps, reference, "k--", label="Ориентир O(h²)")
         ax.set(xlabel="hy" if index == 1 else "hx", ylabel="Максимальная ошибка", title=title)
         ax.set_xticks(steps, [f"{step:.3g}" for step in steps])
@@ -208,7 +260,7 @@ def main():
     print(f"{'Метод':<40} {'Итерации':>9} {'Невязка':>12} {'Макс. ошибка':>14}")
     solutions = {}
     for method, name in METHODS.items():
-        x, y, u, history = solve(method)
+        x, y, u, history = SOLVERS[method]()
         solutions[method] = x, y, u, history
         error = np.max(np.abs(u - exact(x, y)))
         print(f"{name:<40} {len(history):9d} {history[-1]:12.5e} {error:14.5e}")
